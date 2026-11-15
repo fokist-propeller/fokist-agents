@@ -48,7 +48,16 @@ def test_save_and_load_roundtrip(tmp_path):
 
 
 def test_load_missing_file_is_empty(tmp_path):
-    assert c.load(tmp_path / "nope.json").to_dict() == {"repos": [], "boards": []}
+    assert c.load(tmp_path / "nope.json").to_dict() == {
+        "repos": [],
+        "boards": [],
+        "model": {
+            "provider": "ollama",
+            "model": "qwen3.5:9b",
+            "base_url": "http://127.0.0.1:11434",
+            "api_key_env": "ANTHROPIC_API_KEY",
+        },
+    }
 
 
 def test_load_rejects_bad_file(tmp_path):
