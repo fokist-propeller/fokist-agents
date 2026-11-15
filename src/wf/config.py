@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,10 +40,19 @@ class BoardLink:
     label: str = ""
 
 
+@dataclass(frozen=True)
+class ModelConfig:
+    provider: str = "ollama"  # "ollama" or "anthropic-api" (see wf.model)
+    model: str = "qwen3.5:9b"
+    base_url: str = "http://127.0.0.1:11434"  # Ollama only
+    api_key_env: str = "ANTHROPIC_API_KEY"  # name of the env var holding the key; the key itself is never stored here
+
+
 @dataclass
 class Config:
     repos: list[RepoLink] = field(default_factory=list)
     boards: list[BoardLink] = field(default_factory=list)
+    model: ModelConfig = field(default_factory=ModelConfig)
 
     # --- repos -------------------------------------------------------------
 
@@ -92,6 +101,7 @@ class Config:
         return {
             "repos": [{"full_name": r.full_name} for r in self.repos],
             "boards": [{"provider": b.provider, "ref": b.ref, "label": b.label} for b in self.boards],
+            "model": asdict(self.model),
         }
 
     @classmethod
@@ -101,6 +111,8 @@ class Config:
             cfg.add_repo(r["full_name"])
         for b in data.get("boards", []):
             cfg.add_board(b["provider"], b["ref"], b.get("label", ""))
+        if "model" in data:
+            cfg.model = ModelConfig(**data["model"])
         return cfg
 
 
