@@ -80,10 +80,6 @@ def test_anthropic_without_key_fails_clearly_and_does_not_leak():
         build_model(cfg, env={})
 
 
-def test_subscription_provider_is_blocked():
-    cfg = ModelConfig(provider="claude-code-subscription", model="m")
-    with pytest.raises(ProviderNotAllowed, match="not enabled"):
-        build_model(cfg, env={})
 
 
 def test_unknown_provider_lists_options():

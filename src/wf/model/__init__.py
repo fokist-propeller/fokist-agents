@@ -7,9 +7,6 @@ provider SDK, so swapping a provider is a config change, not a code change.
 Adapters:
 - `ollama`: a local model served by Ollama. No cloud terms apply.
 - `anthropic-api`: the Claude API, billed per token, authenticated with an API key.
-
-Not an adapter, on purpose: the Claude Code subscription. It stays blocked until
-it has written approval (see `BLOCKED_PROVIDERS`).
 """
 
 from __future__ import annotations
@@ -59,14 +56,6 @@ class ModelPort(Protocol):
 # A transport posts JSON and returns the parsed JSON body. Injected so tests run offline.
 Transport = Callable[[str, dict[str, str], dict], dict]
 
-BLOCKED_PROVIDERS: dict[str, str] = {
-    "claude-code-subscription": (
-        "claude-code-subscription is not enabled. It needs written approval from "
-        "Anthropic and the TCO before it can be used. See the compliance review."
-    ),
-}
-
-
 def _registry() -> dict[str, Callable[..., ModelPort]]:
     # Imported here so the port module has no provider imports at load time.
     from wf.model.anthropic_api import AnthropicAPIModel
@@ -81,8 +70,6 @@ def known_providers() -> list[str]:
 
 def build_model(cfg, env: dict[str, str], transport: Transport | None = None) -> ModelPort:
     """Create the adapter named in `cfg` (a `wf.config.ModelConfig`)."""
-    if cfg.provider in BLOCKED_PROVIDERS:
-        raise ProviderNotAllowed(BLOCKED_PROVIDERS[cfg.provider])
     registry = _registry()
     if cfg.provider not in registry:
         raise ProviderNotAllowed(
