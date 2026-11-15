@@ -151,6 +151,58 @@ def _print_run(out: dict) -> None:
     print("status:", out["status"])
 
 
+def cmd_model_status(args) -> int:
+    import os
+
+    c = cfgmod.load(_cfg_path(args))
+    m = c.model
+    key_state = "not needed" if m.provider == "ollama" else (
+        f"{m.api_key_env} is set" if os.environ.get(m.api_key_env) else f"{m.api_key_env} is NOT set"
+    )
+    print(f"provider:    {m.provider}")
+    print(f"model:       {m.model}")
+    if m.provider == "ollama":
+        print(f"base url:    {m.base_url}")
+    print(f"credentials: {key_state}")
+    return 0
+
+
+def cmd_model_set(args) -> int:
+    from dataclasses import replace
+
+    path = _cfg_path(args)
+    c = cfgmod.load(path)
+    updates = {k: v for k, v in {"provider": args.provider, "model": args.model,
+                                 "base_url": args.base_url, "api_key_env": args.api_key_env}.items() if v}
+    c.model = replace(c.model, **updates)
+    cfgmod.save(c, path)
+    print(f"model set: provider={c.model.provider} model={c.model.model}")
+    return 0
+
+
+def cmd_ask(args) -> int:
+    import os
+
+    from wf.model import ModelRequest, Message, build_model
+    from wf.model.recording import record_call
+    from wf.usage import UsageLedger
+
+    c = cfgmod.load(_cfg_path(args))
+    model = build_model(c.model, env=dict(os.environ))
+    request = ModelRequest(
+        system=args.system or "",
+        messages=(Message("user", args.prompt),),
+        max_tokens=args.max_tokens,
+    )
+    resp = model.complete(request)
+    ledger = UsageLedger(Path(args.db or os.environ.get("WF_DB", "wf.sqlite")))
+    record_call(ledger, args.agent, resp, ticket=args.ticket, provider=model.name)
+    print(resp.text)
+    print(f"\n[{model.name} {resp.model}: {resp.input_tokens} in, {resp.output_tokens} out, "
+          f"{resp.cache_read_tokens} cache-read, {resp.duration_ms} ms]", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="wf", description="Agentic workflow shell")
     p.add_argument("--config", help="path to workflow.json (default: $WF_CONFIG or ./workflow.json)")
@@ -209,6 +261,26 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--approve", action="store_true")
     g.add_argument("--reject", dest="approve", action="store_false")
     res.set_defaults(func=cmd_resume)
+
+    md = sub.add_parser("model", help="show or set the model engine")
+    msub = md.add_subparsers(dest="model_cmd", required=True)
+    ms = msub.add_parser("status", help="show provider, model, and whether credentials are set")
+    ms.set_defaults(func=cmd_model_status)
+    mset = msub.add_parser("set", help="change the provider or model in workflow.json")
+    mset.add_argument("--provider", help="ollama or anthropic-api")
+    mset.add_argument("--model")
+    mset.add_argument("--base-url", dest="base_url")
+    mset.add_argument("--api-key-env", dest="api_key_env", help="env var that holds the key")
+    mset.set_defaults(func=cmd_model_set)
+
+    ask = sub.add_parser("ask", help="send one prompt through the configured model engine")
+    ask.add_argument("prompt")
+    ask.add_argument("--agent", default="manual", help="agent name recorded in the ledger")
+    ask.add_argument("--ticket", help="ticket key recorded in the ledger")
+    ask.add_argument("--system", help="system prompt")
+    ask.add_argument("--max-tokens", dest="max_tokens", type=int, default=1024)
+    ask.add_argument("--db", default=None, help="ledger file (default: $WF_DB or ./wf.sqlite)")
+    ask.set_defaults(func=cmd_ask)
     return p
 
 

@@ -125,3 +125,45 @@ def test_config_never_stores_the_key_itself():
     data = Config(model=ModelConfig(provider="anthropic-api", model="m")).to_dict()
     assert "sk-" not in json.dumps(data)
     assert data["model"]["api_key_env"] == "ANTHROPIC_API_KEY"
+
+
+def test_cli_ask_routes_through_engine_and_records(tmp_path, monkeypatch, capsys):
+    from wf import cli
+    from wf.model import anthropic_api
+
+    cfg_path = tmp_path / "workflow.json"
+    assert cli.main(["--config", str(cfg_path), "model", "set", "--provider", "anthropic-api",
+                     "--model", "claude-haiku-5-5"]) == 0
+
+    calls = []
+
+    def fake_post(url, headers, body, timeout=300.0):
+        calls.append((url, headers, body))
+        return {"model": "claude-haiku-5-5", "content": [{"type": "text", "text": "pong"}],
+                "usage": {"input_tokens": 12, "output_tokens": 1}}
+
+    monkeypatch.setattr(anthropic_api, "post_json", fake_post)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-xyz")
+    capsys.readouterr()  # drop the output of `model set`
+    db = tmp_path / "wf.sqlite"
+    assert cli.main(["--config", str(cfg_path), "ask", "ping", "--agent", "staff",
+                     "--ticket", "ABC-9", "--db", str(db)]) == 0
+
+    out, err = capsys.readouterr()
+    assert out.strip() == "pong"
+    assert "sk-test-xyz" not in out + err  # the key never reaches the terminal
+    assert calls[0][2]["model"] == "claude-haiku-5-5"
+    from wf.usage import UsageLedger
+    assert UsageLedger(db).largest_calls(1)[0]["ticket"] == "ABC-9"
+
+
+def test_cli_status_never_prints_the_key(tmp_path, monkeypatch, capsys):
+    from wf import cli
+
+    cfg_path = tmp_path / "workflow.json"
+    cli.main(["--config", str(cfg_path), "model", "set", "--provider", "anthropic-api"])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-value")
+    assert cli.main(["--config", str(cfg_path), "model", "status"]) == 0
+    out = capsys.readouterr().out
+    assert "ANTHROPIC_API_KEY is set" in out
+    assert "sk-secret-value" not in out
